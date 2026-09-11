@@ -56,12 +56,18 @@ export default function App() {
   }, []); // The useEffect runs only once on mount
 
   const checkCommands = (text) => {
-    if (text.includes('valider') || text.includes('terminer')) {
-      if (text.includes('un') || text.includes('1')) {
+    // Make detection more flexible with "validez" and "valider"
+    const isValidating = text.includes('valider') || text.includes('validez') || text.includes('terminer');
+    
+    if (isValidating) {
+      // Use independent "if" statements. This way, if both "one" AND "2" are in the same sentence, both will be validated.
+      if (text.includes('un') || text.includes('une') || text.includes('1')) {
         toggleTask(1);
-      } else if (text.includes('deux') || text.includes('2')) {
+      } 
+      if (text.includes('deux') || text.includes('2')) {
         toggleTask(2);
-      } else if (text.includes('trois') || text.includes('3')) {
+      } 
+      if (text.includes('trois') || text.includes('3')) {
         toggleTask(3);
       }
     }
