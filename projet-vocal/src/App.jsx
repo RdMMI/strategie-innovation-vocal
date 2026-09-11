@@ -1,5 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+// Helper to remove accents and make lowercase
+const normalizeText = (text) => {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+};
+
+// Helper to map numbers to their word equivalents
+const getNumberWords = (num) => {
+  const map = {
+    1: ['1', 'un', 'une'],
+    2: ['2', 'deux'],
+    3: ['3', 'trois'],
+    4: ['4', 'quatre'],
+    5: ['5', 'cinq'],
+    6: ['6', 'six'],
+    7: ['7', 'sept'],
+    8: ['8', 'huit'],
+    9: ['9', 'neuf'],
+    10: ['10', 'dix']
+  };
+  return map[num] || [num.toString()];
+};
+
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -9,9 +34,15 @@ export default function App() {
     { id: 3, text: 'Mélanger la préparation', done: false }
   ]);
 
-  // Use useRef to keep a stable reference to the speech API and the user's intent
+  // Use useRef to keep a stable reference to the speech API
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
+  
+  // Keep a ref of tasks so the voice engine always has the latest list
+  const tasksRef = useRef(tasks);
+  useEffect(() => {
+    tasksRef.current = tasks;
+  }, [tasks]);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -28,11 +59,10 @@ export default function App() {
         .map(result => result.transcript)
         .join('');
       
-      setTranscript(currentTranscript.toLowerCase());
-      checkCommands(currentTranscript.toLowerCase());
+      setTranscript(currentTranscript);
+      checkCommands(currentTranscript);
     };
 
-    // Solution for the microphone cutting off: restart it automatically if it stops
     recognition.onend = () => {
       if (isListeningRef.current) {
         try {
@@ -47,34 +77,38 @@ export default function App() {
 
     recognitionRef.current = recognition;
 
-    // Cleanup when the component is unmounted
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.stop();
       }
     };
-  }, []); // The useEffect runs only once on mount
+  }, []);
 
+  // Logic engine: search dynamically through the task list
   const checkCommands = (text) => {
-    // Make detection more flexible with "validez" and "valider"
-    const isValidating = text.includes('valider') || text.includes('validez') || text.includes('terminer');
+    const spokenClean = normalizeText(text);
+    const isValidating = spokenClean.includes('valider') || spokenClean.includes('validez') || spokenClean.includes('terminer');
     
     if (isValidating) {
-      // Use independent "if" statements. This way, if both "one" AND "2" are in the same sentence, both will be validated.
-      if (text.includes('un') || text.includes('une') || text.includes('1')) {
-        toggleTask(1);
-      } 
-      if (text.includes('deux') || text.includes('2')) {
-        toggleTask(2);
-      } 
-      if (text.includes('trois') || text.includes('3')) {
-        toggleTask(3);
-      }
+      // Loop through all tasks to check for matches
+      tasksRef.current.forEach(task => {
+        const taskTextClean = normalizeText(task.text);
+        const idWords = getNumberWords(task.id);
+        
+        // Check if the phrase contains the task number
+        const matchById = idWords.some(word => spokenClean.includes(word));
+        
+        // Check if the phrase contains the exact task name
+        const matchByText = spokenClean.includes(taskTextClean);
+
+        if (matchById || matchByText) {
+          toggleTask(task.id);
+        }
+      });
     }
   };
 
   const toggleTask = (id) => {
-    // Solution to the crash: use the previous state (prevTasks) to always be up to date
     setTasks(prevTasks => prevTasks.map(task => 
       task.id === id ? { ...task, done: true } : task
     ));
@@ -112,7 +146,7 @@ export default function App() {
         </button>
       </div>
 
-      <p><em>Dites par exemple : "Valider la tâche deux"</em></p>
+      <p><em>Dites par exemple : "Valider la tâche 1" OU "Valider [nom de la tâche]"</em></p>
       
       <ul>
         {tasks.map(task => (
