@@ -8,7 +8,7 @@ const normalizeText = (text) => {
     .replace(/[\u0300-\u036f]/g, "");
 };
 
-// Helper to map numbers to their word equivalents
+// Helper to map numbers to their word equivalents (extended to 20)
 const getNumberWords = (num) => {
   const map = {
     1: ['1', 'un', 'une'],
@@ -20,7 +20,17 @@ const getNumberWords = (num) => {
     7: ['7', 'sept'],
     8: ['8', 'huit'],
     9: ['9', 'neuf'],
-    10: ['10', 'dix']
+    10: ['10', 'dix'],
+    11: ['11', 'onze'],
+    12: ['12', 'douze'],
+    13: ['13', 'treize'],
+    14: ['14', 'quatorze'],
+    15: ['15', 'quinze'],
+    16: ['16', 'seize'],
+    17: ['17', 'dix-sept'],
+    18: ['18', 'dix-huit'],
+    19: ['19', 'dix-neuf'],
+    20: ['20', 'vingt']
   };
   return map[num] || [num.toString()];
 };
@@ -119,10 +129,14 @@ export default function App() {
         }
       });
 
-      // Pass 2: Check by ID on the remaining speech
+      // Pass 2: Check by ID using exact word matching to avoid substring collisions
+      const spokenWords = remainingSpeech.split(/\s+/); // Splits sentence into exact words
+
       tasksRef.current.forEach(task => {
         const idWords = getNumberWords(task.id);
-        const matchById = idWords.some(word => remainingSpeech.includes(word));
+        
+        // Look for an exact match in the array of spoken words
+        const matchById = idWords.some(word => spokenWords.includes(word));
 
         if (matchById) {
           if (!task.done) {
