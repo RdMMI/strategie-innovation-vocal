@@ -52,10 +52,8 @@ export default function App() {
   const [newListName, setNewListName] = useState('');
   
   // FEATURE: Multi-lists Architecture & Persistent Storage
-  // We use a new localStorage key to avoid conflicts with the old data structure
   const [lists, setLists] = useState(() => {
     const savedLists = localStorage.getItem('voice-checklist-multi-lists');
-    // FIX applied here: checking 'savedLists' instead of 'savedTasks'
     if (savedLists) {
       return JSON.parse(savedLists);
     }
@@ -148,7 +146,6 @@ export default function App() {
     let remainingSpeech = spokenClean;
 
     // 1. FEATURE: Voice Navigation Check
-    // Checks if the user wants to switch to another list
     const isNavigating = remainingSpeech.includes('va sur la liste') || remainingSpeech.includes('aller sur la liste') || remainingSpeech.includes('ouvre la liste');
     
     if (isNavigating) {
@@ -163,7 +160,6 @@ export default function App() {
     }
 
     // 2. FEATURE: Task Validation Check
-    // Checks validations ONLY for the currently active list
     const isValidating = remainingSpeech.includes('valider') || remainingSpeech.includes('validez') || remainingSpeech.includes('terminer');
     
     if (isValidating) {
@@ -229,7 +225,7 @@ export default function App() {
     const newList = { id: newId, name: newListName, tasks: [] };
     
     setLists(prev => [...prev, newList]);
-    setActiveListId(newId); // Automatically switch to the new list
+    setActiveListId(newId);
     setNewListName('');
   };
 
@@ -255,6 +251,23 @@ export default function App() {
       setLists(prevLists => prevLists.map(list => 
         list.id === activeListId ? { ...list, tasks: [] } : list
       ));
+    }
+  };
+
+  // FEATURE: Delete entire list
+  const handleDeleteList = (listIdToDelete) => {
+    if (window.confirm("Êtes-vous sûr de vouloir supprimer définitivement cette liste et toutes ses tâches ?")) {
+      setLists(prevLists => {
+        const updatedLists = prevLists.filter(l => l.id !== listIdToDelete);
+        
+        // If we are deleting the list we are currently looking at
+        if (activeListId === listIdToDelete) {
+          // Switch to the first available list, or null if there are no lists left
+          setActiveListId(updatedLists.length > 0 ? updatedLists[0].id : null);
+        }
+        
+        return updatedLists;
+      });
     }
   };
 
@@ -299,7 +312,6 @@ export default function App() {
       <div>
         <h2>Mes Listes</h2>
         
-        {/* Navigation Buttons */}
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
           {lists.map(list => (
             <button 
@@ -312,7 +324,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* Form to create a new list */}
         <form onSubmit={handleAddList}>
           <input 
             type="text" 
@@ -351,9 +362,17 @@ export default function App() {
             ))}
           </ul>
 
-          {activeList.tasks.length > 0 && (
-            <button onClick={handleClearTasks}>Vider cette liste</button>
-          )}
+          <div style={{ marginTop: '20px' }}>
+            {activeList.tasks.length > 0 && (
+              <button onClick={handleClearTasks}>Vider les tâches</button>
+            )}
+            <button 
+              onClick={() => handleDeleteList(activeList.id)} 
+              style={{ marginLeft: activeList.tasks.length > 0 ? '10px' : '0', color: '#cc0000' }}
+            >
+              Supprimer la liste
+            </button>
+          </div>
         </div>
       ) : (
         <p>Veuillez créer ou sélectionner une liste.</p>
