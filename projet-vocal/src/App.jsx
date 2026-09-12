@@ -49,6 +49,7 @@ const speakText = (text) => {
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  // New state for the input field
   const [newTaskText, setNewTaskText] = useState('');
   
   // Initialize state from localStorage if available, otherwise use default
@@ -177,6 +178,13 @@ export default function App() {
     setNewTaskText('');
   };
 
+  // Handler to clear the entire list
+  const handleClearList = () => {
+    if (window.confirm("Êtes-vous sûr de vouloir vider toute la liste ?")) {
+      setTasks([]);
+    }
+  };
+
   const toggleListen = () => {
     if (!recognitionRef.current) return;
 
@@ -232,7 +240,16 @@ export default function App() {
         ))}
       </ul>
 
+      {/* Only show the clear button if there are tasks in the list */}
+      {tasks.length > 0 && (
+        <div>
+          <br />
+          <button onClick={handleClearList}>Vider la liste</button>
+        </div>
+      )}
+
       <div>
+        <br />
         <strong>Ce que l'app entend :</strong> 
         <p>{transcript}</p>
       </div>
