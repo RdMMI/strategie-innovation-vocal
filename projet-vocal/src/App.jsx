@@ -38,7 +38,6 @@ const getNumberWords = (num) => {
 // Helper for Text-to-Speech (Voice synthesis)
 const speakText = (text) => {
   if ('speechSynthesis' in window) {
-    // Cut off any currently playing speech to avoid overlapping
     window.speechSynthesis.cancel(); 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'fr-FR';
@@ -50,32 +49,54 @@ export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [newTaskText, setNewTaskText] = useState('');
+  const [newListName, setNewListName] = useState('');
   
-  // FEATURE: Persistent Storage
-  const [tasks, setTasks] = useState(() => {
-    const savedTasks = localStorage.getItem('voice-checklist-tasks');
-    if (savedTasks) {
-      return JSON.parse(savedTasks);
+  // FEATURE: Multi-lists Architecture & Persistent Storage
+  // We use a new localStorage key to avoid conflicts with the old data structure
+  const [lists, setLists] = useState(() => {
+    const savedLists = localStorage.getItem('voice-checklist-multi-lists');
+    // FIX applied here: checking 'savedLists' instead of 'savedTasks'
+    if (savedLists) {
+      return JSON.parse(savedLists);
     }
     return [
-      { id: 1, text: 'Préparer les ingrédients', done: false },
-      { id: 2, text: 'Allumer le four', done: false },
-      { id: 3, text: 'Mélanger la préparation', done: false }
+      {
+        id: 1,
+        name: 'Cuisine',
+        tasks: [
+          { id: 1, text: 'Préparer les ingrédients', done: false },
+          { id: 2, text: 'Allumer le four', done: false }
+        ]
+      },
+      {
+        id: 2,
+        name: 'Travail',
+        tasks: [
+          { id: 1, text: 'Envoyer le rapport', done: false }
+        ]
+      }
     ];
   });
 
-  // FEATURE: Auto-save
+  const [activeListId, setActiveListId] = useState(lists.length > 0 ? lists[0].id : null);
+
   useEffect(() => {
-    localStorage.setItem('voice-checklist-tasks', JSON.stringify(tasks));
-  }, [tasks]);
+    localStorage.setItem('voice-checklist-multi-lists', JSON.stringify(lists));
+  }, [lists]);
 
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   
-  const tasksRef = useRef(tasks);
+  const listsRef = useRef(lists);
+  const activeListIdRef = useRef(activeListId);
+
   useEffect(() => {
-    tasksRef.current = tasks;
-  }, [tasks]);
+    listsRef.current = lists;
+  }, [lists]);
+
+  useEffect(() => {
+    activeListIdRef.current = activeListId;
+  }, [activeListId]);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -95,9 +116,7 @@ export default function App() {
       
       setTranscript(currentTranscript);
 
-      // FEATURE: Prevent premature triggers (Cascade bug fix)
       const isFinal = resultsArray[resultsArray.length - 1].isFinal;
-      
       if (isFinal) {
         checkCommands(currentTranscript);
       }
@@ -124,51 +143,65 @@ export default function App() {
     };
   }, []);
 
-  // Logic engine: search dynamically through the task list
   const checkCommands = (text) => {
     const spokenClean = normalizeText(text);
-    const isValidating = spokenClean.includes('valider') || spokenClean.includes('validez') || spokenClean.includes('terminer');
+    let remainingSpeech = spokenClean;
+
+    // 1. FEATURE: Voice Navigation Check
+    // Checks if the user wants to switch to another list
+    const isNavigating = remainingSpeech.includes('va sur la liste') || remainingSpeech.includes('aller sur la liste') || remainingSpeech.includes('ouvre la liste');
+    
+    if (isNavigating) {
+      listsRef.current.forEach(list => {
+        const listNameClean = normalizeText(list.name);
+        if (remainingSpeech.includes(listNameClean)) {
+          setActiveListId(list.id);
+          speakText(`Ouverture de la liste ${list.name}`);
+          remainingSpeech = remainingSpeech.replace(listNameClean, "");
+        }
+      });
+    }
+
+    // 2. FEATURE: Task Validation Check
+    // Checks validations ONLY for the currently active list
+    const isValidating = remainingSpeech.includes('valider') || remainingSpeech.includes('validez') || remainingSpeech.includes('terminer');
     
     if (isValidating) {
-      let remainingSpeech = spokenClean;
+      const currentList = listsRef.current.find(l => l.id === activeListIdRef.current);
+      if (!currentList) return;
 
-      // FEATURE: Anti-Collision Sorting
-      const tasksSortedByLength = [...tasksRef.current].sort((a, b) => b.text.length - a.text.length);
+      const tasksSortedByLength = [...currentList.tasks].sort((a, b) => b.text.length - a.text.length);
 
-      // Pass 1: Check by text first
+      // Pass 1: Check by task text
       tasksSortedByLength.forEach(task => {
         const taskTextClean = normalizeText(task.text);
         
-        // FEATURE: Space-Insensitive Matching
-        // Transforms "test55" into a regex that matches "test 55" or "t e s t 5 5"
         const regexStr = taskTextClean
-          .replace(/\s+/g, '') // Remove existing spaces
-          .split('') // Split into individual characters
-          .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) // Escape any special characters
-          .join('\\s*'); // Allow 0 or multiple spaces between every character
+          .replace(/\s+/g, '')
+          .split('')
+          .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('\\s*');
           
         const flexibleRegex = new RegExp(regexStr, 'g');
 
         if (flexibleRegex.test(remainingSpeech)) {
           if (!task.done) {
-            toggleTask(task.id);
+            toggleTask(currentList.id, task.id);
             speakText(`${task.text}, validé.`);
           }
-          // Remove the matched text (including its spaces) to prevent triggering shorter IDs
           remainingSpeech = remainingSpeech.replace(flexibleRegex, "");
         }
       });
 
-      // Pass 2: Check by ID using exact word matching
+      // Pass 2: Check by task ID
       const spokenWords = remainingSpeech.split(/\s+/); 
-
-      tasksRef.current.forEach(task => {
+      currentList.tasks.forEach(task => {
         const idWords = getNumberWords(task.id);
         const matchById = idWords.some(word => spokenWords.includes(word));
 
         if (matchById) {
           if (!task.done) {
-            toggleTask(task.id);
+            toggleTask(currentList.id, task.id);
             speakText(`${task.text}, validé.`);
           }
         }
@@ -176,24 +209,52 @@ export default function App() {
     }
   };
 
-  const toggleTask = (id) => {
-    setTasks(prevTasks => prevTasks.map(task => 
-      task.id === id ? { ...task, done: true } : task
-    ));
+  const toggleTask = (listId, taskId) => {
+    setLists(prevLists => prevLists.map(list => {
+      if (list.id !== listId) return list;
+      return {
+        ...list,
+        tasks: list.tasks.map(task => 
+          task.id === taskId ? { ...task, done: true } : task
+        )
+      };
+    }));
+  };
+
+  const handleAddList = (e) => {
+    e.preventDefault();
+    if (!newListName.trim()) return;
+    
+    const newId = lists.length > 0 ? Math.max(...lists.map(l => l.id)) + 1 : 1;
+    const newList = { id: newId, name: newListName, tasks: [] };
+    
+    setLists(prev => [...prev, newList]);
+    setActiveListId(newId); // Automatically switch to the new list
+    setNewListName('');
   };
 
   const handleAddTask = (e) => {
     e.preventDefault();
-    if (!newTaskText.trim()) return;
-    const newId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
-    setTasks(prev => [...prev, { id: newId, text: newTaskText, done: false }]);
+    if (!newTaskText.trim() || !activeListId) return;
+
+    setLists(prevLists => prevLists.map(list => {
+      if (list.id !== activeListId) return list;
+      
+      const newTaskId = list.tasks.length > 0 ? Math.max(...list.tasks.map(t => t.id)) + 1 : 1;
+      return {
+        ...list,
+        tasks: [...list.tasks, { id: newTaskId, text: newTaskText, done: false }]
+      };
+    }));
+    
     setNewTaskText('');
   };
 
-  // FEATURE: Hard Reset
-  const handleClearList = () => {
-    if (window.confirm("Êtes-vous sûr de vouloir vider toute la liste ?")) {
-      setTasks([]);
+  const handleClearTasks = () => {
+    if (window.confirm("Vider toutes les tâches de cette liste ?")) {
+      setLists(prevLists => prevLists.map(list => 
+        list.id === activeListId ? { ...list, tasks: [] } : list
+      ));
     }
   };
 
@@ -219,6 +280,8 @@ export default function App() {
     return <div>Votre navigateur ne supporte pas la reconnaissance vocale (Utilisez Chrome).</div>;
   }
 
+  const activeList = lists.find(l => l.id === activeListId);
+
   return (
     <div>
       <h1>Checklist Mains-Libres 🎤</h1>
@@ -230,32 +293,70 @@ export default function App() {
       </div>
 
       <br />
+      <hr />
 
-      <form onSubmit={handleAddTask}>
-        <input 
-          type="text" 
-          value={newTaskText} 
-          onChange={(e) => setNewTaskText(e.target.value)} 
-          placeholder="Ex: Nettoyer le plan de travail"
-        />
-        <button type="submit">Ajouter la tâche</button>
-      </form>
-
-      <p><em>Dites par exemple : "Valider [numéro de la tâche]" OU "Valider [nom de la tâche]"</em></p>
-      
-      <ul>
-        {tasks.map(task => (
-          <li key={task.id}>
-            {task.id}. {task.text} {task.done && '✅'}
-          </li>
-        ))}
-      </ul>
-
-      {tasks.length > 0 && (
-        <div>
-          <br />
-          <button onClick={handleClearList}>Vider la liste</button>
+      {/* --- LIST MANAGEMENT SECTION --- */}
+      <div>
+        <h2>Mes Listes</h2>
+        
+        {/* Navigation Buttons */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          {lists.map(list => (
+            <button 
+              key={list.id} 
+              onClick={() => setActiveListId(list.id)}
+              style={{ fontWeight: activeListId === list.id ? 'bold' : 'normal' }}
+            >
+              {list.name}
+            </button>
+          ))}
         </div>
+
+        {/* Form to create a new list */}
+        <form onSubmit={handleAddList}>
+          <input 
+            type="text" 
+            value={newListName} 
+            onChange={(e) => setNewListName(e.target.value)} 
+            placeholder="Nouvelle liste (ex: Courses)"
+          />
+          <button type="submit">Créer une liste</button>
+        </form>
+      </div>
+      
+      <hr />
+
+      {/* --- ACTIVE LIST SECTION --- */}
+      {activeList ? (
+        <div>
+          <h2>Contenu de : {activeList.name}</h2>
+          
+          <form onSubmit={handleAddTask}>
+            <input 
+              type="text" 
+              value={newTaskText} 
+              onChange={(e) => setNewTaskText(e.target.value)} 
+              placeholder="Ex: Acheter du pain"
+            />
+            <button type="submit">Ajouter à {activeList.name}</button>
+          </form>
+
+          <p><em>Naviguez : "Va sur la liste [nom]" | Validez : "Valider [tâche]"</em></p>
+          
+          <ul>
+            {activeList.tasks.map(task => (
+              <li key={task.id}>
+                {task.id}. {task.text} {task.done && '✅'}
+              </li>
+            ))}
+          </ul>
+
+          {activeList.tasks.length > 0 && (
+            <button onClick={handleClearTasks}>Vider cette liste</button>
+          )}
+        </div>
+      ) : (
+        <p>Veuillez créer ou sélectionner une liste.</p>
       )}
 
       <div>
