@@ -49,10 +49,10 @@ const speakText = (text) => {
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
-  // New state for the input field
   const [newTaskText, setNewTaskText] = useState('');
   
-  // Initialize state from localStorage if available, otherwise use default
+  // FEATURE: Persistent Storage
+  // Retrieve tasks from the browser's local memory to keep data even if the page is reloaded
   const [tasks, setTasks] = useState(() => {
     const savedTasks = localStorage.getItem('voice-checklist-tasks');
     if (savedTasks) {
@@ -65,7 +65,8 @@ export default function App() {
     ];
   });
 
-  // Save tasks to localStorage whenever they change
+  // FEATURE: Auto-save
+  // Automatically backup tasks to localStorage every time the tasks array is updated
   useEffect(() => {
     localStorage.setItem('voice-checklist-tasks', JSON.stringify(tasks));
   }, [tasks]);
@@ -74,7 +75,7 @@ export default function App() {
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   
-  // Keep a ref of tasks so the voice engine always has the latest list
+  // Keep a ref of tasks so the voice engine always has the latest list without restarting the mic
   const tasksRef = useRef(tasks);
   useEffect(() => {
     tasksRef.current = tasks;
@@ -90,13 +91,22 @@ export default function App() {
     recognition.lang = 'fr-FR';
 
     recognition.onresult = (event) => {
-      const currentTranscript = Array.from(event.results)
+      const resultsArray = Array.from(event.results);
+      const currentTranscript = resultsArray
         .map(result => result[0])
         .map(result => result.transcript)
         .join('');
       
       setTranscript(currentTranscript);
-      checkCommands(currentTranscript);
+
+      // FEATURE: Prevent premature triggers (Cascade bug fix)
+      // We check if the user has completely finished speaking before validating.
+      // This prevents the app from validating "test 5" while the user is actually saying "test 555".
+      const isFinal = resultsArray[resultsArray.length - 1].isFinal;
+      
+      if (isFinal) {
+        checkCommands(currentTranscript);
+      }
     };
 
     recognition.onend = () => {
@@ -128,8 +138,13 @@ export default function App() {
     if (isValidating) {
       let remainingSpeech = spokenClean;
 
-      // Pass 1: Check by text first to prevent number collisions
-      tasksRef.current.forEach(task => {
+      // FEATURE: Anti-Collision Sorting
+      // Sort tasks by length (longest first) to prevent partial match collisions.
+      // Example: We want to check for "test 55" BEFORE checking for "test 5".
+      const tasksSortedByLength = [...tasksRef.current].sort((a, b) => b.text.length - a.text.length);
+
+      // Pass 1: Check by text first
+      tasksSortedByLength.forEach(task => {
         const taskTextClean = normalizeText(task.text);
         if (remainingSpeech.includes(taskTextClean)) {
           // Check if it's not already done before speaking
@@ -137,7 +152,7 @@ export default function App() {
             toggleTask(task.id);
             speakText(`${task.text}, validé.`);
           }
-          // Remove the matched text from the string so its numbers don't trigger IDs
+          // Remove the matched text from the string so its numbers don't trigger IDs later
           remainingSpeech = remainingSpeech.replace(taskTextClean, "");
         }
       });
@@ -178,7 +193,8 @@ export default function App() {
     setNewTaskText('');
   };
 
-  // Handler to clear the entire list
+  // FEATURE: Hard Reset
+  // Handler to completely wipe the current list and clear it from memory (with a safety prompt)
   const handleClearList = () => {
     if (window.confirm("Êtes-vous sûr de vouloir vider toute la liste ?")) {
       setTasks([]);
