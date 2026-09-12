@@ -49,13 +49,25 @@ const speakText = (text) => {
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
-  // New state for the input field
   const [newTaskText, setNewTaskText] = useState('');
-  const [tasks, setTasks] = useState([
-    { id: 1, text: 'Préparer les ingrédients', done: false },
-    { id: 2, text: 'Allumer le four', done: false },
-    { id: 3, text: 'Mélanger la préparation', done: false }
-  ]);
+  
+  // Initialize state from localStorage if available, otherwise use default
+  const [tasks, setTasks] = useState(() => {
+    const savedTasks = localStorage.getItem('voice-checklist-tasks');
+    if (savedTasks) {
+      return JSON.parse(savedTasks);
+    }
+    return [
+      { id: 1, text: 'Préparer les ingrédients', done: false },
+      { id: 2, text: 'Allumer le four', done: false },
+      { id: 3, text: 'Mélanger la préparation', done: false }
+    ];
+  });
+
+  // Save tasks to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('voice-checklist-tasks', JSON.stringify(tasks));
+  }, [tasks]);
 
   // Use useRef to keep a stable reference to the speech API
   const recognitionRef = useRef(null);
