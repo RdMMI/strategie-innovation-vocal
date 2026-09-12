@@ -25,6 +25,17 @@ const getNumberWords = (num) => {
   return map[num] || [num.toString()];
 };
 
+// Helper for Text-to-Speech (Voice synthesis)
+const speakText = (text) => {
+  if ('speechSynthesis' in window) {
+    // Cut off any currently playing speech to avoid overlapping
+    window.speechSynthesis.cancel(); 
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'fr-FR';
+    window.speechSynthesis.speak(utterance);
+  }
+};
+
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -98,7 +109,11 @@ export default function App() {
       tasksRef.current.forEach(task => {
         const taskTextClean = normalizeText(task.text);
         if (remainingSpeech.includes(taskTextClean)) {
-          toggleTask(task.id);
+          // Check if it's not already done before speaking
+          if (!task.done) {
+            toggleTask(task.id);
+            speakText(`${task.text}, validé.`);
+          }
           // Remove the matched text from the string so its numbers don't trigger IDs
           remainingSpeech = remainingSpeech.replace(taskTextClean, "");
         }
@@ -110,7 +125,10 @@ export default function App() {
         const matchById = idWords.some(word => remainingSpeech.includes(word));
 
         if (matchById) {
-          toggleTask(task.id);
+          if (!task.done) {
+            toggleTask(task.id);
+            speakText(`${task.text}, validé.`);
+          }
         }
       });
     }
@@ -178,7 +196,7 @@ export default function App() {
         <button type="submit">Ajouter la tâche</button>
       </form>
 
-      <p><em>Dites par exemple : "Valider la tâche 1" OU "Valider [nom de la tâche]"</em></p>
+      <p><em>Dites par exemple : "Valider [numéro de la tâche]" OU "Valider [nom de la tâche]"</em></p>
       
       <ul>
         {tasks.map(task => (
