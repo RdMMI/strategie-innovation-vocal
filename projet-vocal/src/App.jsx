@@ -52,7 +52,6 @@ export default function App() {
   const [newTaskText, setNewTaskText] = useState('');
   
   // FEATURE: Persistent Storage
-  // Retrieve tasks from the browser's local memory to keep data even if the page is reloaded
   const [tasks, setTasks] = useState(() => {
     const savedTasks = localStorage.getItem('voice-checklist-tasks');
     if (savedTasks) {
@@ -66,16 +65,13 @@ export default function App() {
   });
 
   // FEATURE: Auto-save
-  // Automatically backup tasks to localStorage every time the tasks array is updated
   useEffect(() => {
     localStorage.setItem('voice-checklist-tasks', JSON.stringify(tasks));
   }, [tasks]);
 
-  // Use useRef to keep a stable reference to the speech API
   const recognitionRef = useRef(null);
   const isListeningRef = useRef(false);
   
-  // Keep a ref of tasks so the voice engine always has the latest list without restarting the mic
   const tasksRef = useRef(tasks);
   useEffect(() => {
     tasksRef.current = tasks;
@@ -100,8 +96,6 @@ export default function App() {
       setTranscript(currentTranscript);
 
       // FEATURE: Prevent premature triggers (Cascade bug fix)
-      // We check if the user has completely finished speaking before validating.
-      // This prevents the app from validating "test 5" while the user is actually saying "test 555".
       const isFinal = resultsArray[resultsArray.length - 1].isFinal;
       
       if (isFinal) {
@@ -139,31 +133,37 @@ export default function App() {
       let remainingSpeech = spokenClean;
 
       // FEATURE: Anti-Collision Sorting
-      // Sort tasks by length (longest first) to prevent partial match collisions.
-      // Example: We want to check for "test 55" BEFORE checking for "test 5".
       const tasksSortedByLength = [...tasksRef.current].sort((a, b) => b.text.length - a.text.length);
 
       // Pass 1: Check by text first
       tasksSortedByLength.forEach(task => {
         const taskTextClean = normalizeText(task.text);
-        if (remainingSpeech.includes(taskTextClean)) {
-          // Check if it's not already done before speaking
+        
+        // FEATURE: Space-Insensitive Matching
+        // Transforms "test55" into a regex that matches "test 55" or "t e s t 5 5"
+        const regexStr = taskTextClean
+          .replace(/\s+/g, '') // Remove existing spaces
+          .split('') // Split into individual characters
+          .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) // Escape any special characters
+          .join('\\s*'); // Allow 0 or multiple spaces between every character
+          
+        const flexibleRegex = new RegExp(regexStr, 'g');
+
+        if (flexibleRegex.test(remainingSpeech)) {
           if (!task.done) {
             toggleTask(task.id);
             speakText(`${task.text}, validé.`);
           }
-          // Remove the matched text from the string so its numbers don't trigger IDs later
-          remainingSpeech = remainingSpeech.replace(taskTextClean, "");
+          // Remove the matched text (including its spaces) to prevent triggering shorter IDs
+          remainingSpeech = remainingSpeech.replace(flexibleRegex, "");
         }
       });
 
-      // Pass 2: Check by ID using exact word matching to avoid substring collisions
-      const spokenWords = remainingSpeech.split(/\s+/); // Splits sentence into exact words
+      // Pass 2: Check by ID using exact word matching
+      const spokenWords = remainingSpeech.split(/\s+/); 
 
       tasksRef.current.forEach(task => {
         const idWords = getNumberWords(task.id);
-        
-        // Look for an exact match in the array of spoken words
         const matchById = idWords.some(word => spokenWords.includes(word));
 
         if (matchById) {
@@ -182,19 +182,15 @@ export default function App() {
     ));
   };
 
-  // Handler to add a new task from the input
   const handleAddTask = (e) => {
     e.preventDefault();
     if (!newTaskText.trim()) return;
-
-    // Create a new ID automatically based on the highest existing ID
     const newId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
     setTasks(prev => [...prev, { id: newId, text: newTaskText, done: false }]);
     setNewTaskText('');
   };
 
   // FEATURE: Hard Reset
-  // Handler to completely wipe the current list and clear it from memory (with a safety prompt)
   const handleClearList = () => {
     if (window.confirm("Êtes-vous sûr de vouloir vider toute la liste ?")) {
       setTasks([]);
@@ -235,7 +231,6 @@ export default function App() {
 
       <br />
 
-      {/* Form to add a new task */}
       <form onSubmit={handleAddTask}>
         <input 
           type="text" 
@@ -256,7 +251,6 @@ export default function App() {
         ))}
       </ul>
 
-      {/* Only show the clear button if there are tasks in the list */}
       {tasks.length > 0 && (
         <div>
           <br />
