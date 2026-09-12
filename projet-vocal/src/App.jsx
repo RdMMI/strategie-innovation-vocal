@@ -105,8 +105,14 @@ export default function App() {
     recognition.interimResults = true;
     recognition.lang = 'fr-FR';
 
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
     recognition.onresult = (event) => {
       const resultsArray = Array.from(event.results);
+      
+      // On garde tout l'historique pour l'afficher à l'écran
       const currentTranscript = resultsArray
         .map(result => result[0])
         .map(result => result.transcript)
@@ -114,9 +120,13 @@ export default function App() {
       
       setTranscript(currentTranscript);
 
-      const isFinal = resultsArray[resultsArray.length - 1].isFinal;
-      if (isFinal) {
-        checkCommands(currentTranscript);
+      // FIX: On isole uniquement le TOUT DERNIER bloc de texte prononcé
+      const latestResult = resultsArray[resultsArray.length - 1];
+      
+      if (latestResult.isFinal) {
+        // On n'envoie QUE la dernière phrase au moteur logique, pour ne pas relire les anciens ordres
+        const latestSentence = latestResult[0].transcript;
+        checkCommands(latestSentence);
       }
     };
 
@@ -125,7 +135,7 @@ export default function App() {
         try {
           recognition.start();
         } catch (e) {
-          console.error("Microphone restart error...", e);
+          // Si le micro est déjà en cours, on ignore
         }
       } else {
         setIsListening(false);
@@ -146,15 +156,22 @@ export default function App() {
     let remainingSpeech = spokenClean;
 
     // 1. FEATURE: Voice Navigation Check
-    const isNavigating = remainingSpeech.includes('va sur la liste') || remainingSpeech.includes('aller sur la liste') || remainingSpeech.includes('ouvre la liste');
-    
-    if (isNavigating) {
+    if (remainingSpeech.includes('liste')) {
       listsRef.current.forEach(list => {
         const listNameClean = normalizeText(list.name);
-        if (remainingSpeech.includes(listNameClean)) {
+        
+        const regexStr = listNameClean
+          .replace(/\s+/g, '')
+          .split('')
+          .map(char => char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('\\s*');
+          
+        const flexibleRegex = new RegExp(regexStr, 'g');
+
+        if (flexibleRegex.test(remainingSpeech)) {
           setActiveListId(list.id);
           speakText(`Ouverture de la liste ${list.name}`);
-          remainingSpeech = remainingSpeech.replace(listNameClean, "");
+          remainingSpeech = remainingSpeech.replace(flexibleRegex, "");
         }
       });
     }
@@ -254,15 +271,12 @@ export default function App() {
     }
   };
 
-  // FEATURE: Delete entire list
   const handleDeleteList = (listIdToDelete) => {
     if (window.confirm("Êtes-vous sûr de vouloir supprimer définitivement cette liste et toutes ses tâches ?")) {
       setLists(prevLists => {
         const updatedLists = prevLists.filter(l => l.id !== listIdToDelete);
         
-        // If we are deleting the list we are currently looking at
         if (activeListId === listIdToDelete) {
-          // Switch to the first available list, or null if there are no lists left
           setActiveListId(updatedLists.length > 0 ? updatedLists[0].id : null);
         }
         
@@ -274,17 +288,15 @@ export default function App() {
   const toggleListen = () => {
     if (!recognitionRef.current) return;
 
-    if (isListening) {
+    if (isListeningRef.current) {
       isListeningRef.current = false;
-      setIsListening(false);
       recognitionRef.current.stop();
     } else {
       isListeningRef.current = true;
-      setIsListening(true);
       try {
         recognitionRef.current.start();
       } catch(e) {
-        console.error("Start error", e);
+        // Silently catch error
       }
     }
   };
