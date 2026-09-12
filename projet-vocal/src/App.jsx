@@ -28,6 +28,8 @@ const getNumberWords = (num) => {
 export default function App() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  // New state for the input field
+  const [newTaskText, setNewTaskText] = useState('');
   const [tasks, setTasks] = useState([
     { id: 1, text: 'Préparer les ingrédients', done: false },
     { id: 2, text: 'Allumer le four', done: false },
@@ -90,18 +92,24 @@ export default function App() {
     const isValidating = spokenClean.includes('valider') || spokenClean.includes('validez') || spokenClean.includes('terminer');
     
     if (isValidating) {
-      // Loop through all tasks to check for matches
+      let remainingSpeech = spokenClean;
+
+      // Pass 1: Check by text first to prevent number collisions
       tasksRef.current.forEach(task => {
         const taskTextClean = normalizeText(task.text);
-        const idWords = getNumberWords(task.id);
-        
-        // Check if the phrase contains the task number
-        const matchById = idWords.some(word => spokenClean.includes(word));
-        
-        // Check if the phrase contains the exact task name
-        const matchByText = spokenClean.includes(taskTextClean);
+        if (remainingSpeech.includes(taskTextClean)) {
+          toggleTask(task.id);
+          // Remove the matched text from the string so its numbers don't trigger IDs
+          remainingSpeech = remainingSpeech.replace(taskTextClean, "");
+        }
+      });
 
-        if (matchById || matchByText) {
+      // Pass 2: Check by ID on the remaining speech
+      tasksRef.current.forEach(task => {
+        const idWords = getNumberWords(task.id);
+        const matchById = idWords.some(word => remainingSpeech.includes(word));
+
+        if (matchById) {
           toggleTask(task.id);
         }
       });
@@ -112,6 +120,17 @@ export default function App() {
     setTasks(prevTasks => prevTasks.map(task => 
       task.id === id ? { ...task, done: true } : task
     ));
+  };
+
+  // Handler to add a new task from the input
+  const handleAddTask = (e) => {
+    e.preventDefault();
+    if (!newTaskText.trim()) return;
+
+    // Create a new ID automatically based on the highest existing ID
+    const newId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) + 1 : 1;
+    setTasks(prev => [...prev, { id: newId, text: newTaskText, done: false }]);
+    setNewTaskText('');
   };
 
   const toggleListen = () => {
@@ -145,6 +164,19 @@ export default function App() {
           {isListening ? 'Arrêter le micro' : 'Activer le micro'}
         </button>
       </div>
+
+      <br />
+
+      {/* Form to add a new task */}
+      <form onSubmit={handleAddTask}>
+        <input 
+          type="text" 
+          value={newTaskText} 
+          onChange={(e) => setNewTaskText(e.target.value)} 
+          placeholder="Ex: Nettoyer le plan de travail"
+        />
+        <button type="submit">Ajouter la tâche</button>
+      </form>
 
       <p><em>Dites par exemple : "Valider la tâche 1" OU "Valider [nom de la tâche]"</em></p>
       
